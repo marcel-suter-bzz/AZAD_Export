@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 
 @dataclass
-class Person():
+class Person:
     """
     a student or teacher
 
@@ -13,7 +13,7 @@ class Person():
     firstname: str
     lastname: str
     department: str
-    cohorts: list
+    groups: list
     role: str
 
     @property
@@ -49,12 +49,12 @@ class Person():
         self._department = value
 
     @property
-    def cohorts(self):
-        return self._cohorts
+    def groups(self):
+        return self._groups
 
-    @cohorts.setter
-    def cohorts(self, value):
-        self._cohorts = value
+    @groups.setter
+    def groups(self, value):
+        self._groups = value
 
     @property
     def role(self):

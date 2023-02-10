@@ -6,24 +6,30 @@ import re
 from azure.identity import ClientSecretCredential
 from msgraph.core import GraphClient
 
+from group import Group
 from person import Person
 
 
 def main():
     load_dotenv()
     app_client = graph_auth()
-    with shelve.open(
-            filename=os.getenv('DATAPATH') + 'adusers.db',
-            flag='c'
-    ) as db:
-        load_users(app_client, db)
+    with \
+            shelve.open(
+                filename=os.getenv('DATAPATH') + 'adusers_new.db',
+                flag='c'
+            ) as people_db, \
+            shelve.open(
+                filename=os.getenv('DATAPATH') + 'adgroups_new.db',
+                flag='c'
+            ) as groups_db:
+        load_users(app_client, people_db, groups_db)
 
 
-def load_users(app_client, db):
+def load_users(app_client, people_db, groups_db):
     """
     loads all users from MS Graph
     :param app_client:
-    :param db:
+    :param people_db:
     :return:
     """
     users = read_users(app_client)
@@ -45,8 +51,9 @@ def load_users(app_client, db):
                     role=role
                 )
                 if role == 'student':
-                    person.cohorts = list_cohorts(groups)
-                db[user['mail']] = person
+                    person.groups = list_groups(groups)
+                    group_add(groups_db, person.email, person.groups)
+                people_db[user['mail']] = person
 
         if '@odata.nextLink' in users:
             users_response = app_client.get(users['@odata.nextLink'])
@@ -55,7 +62,24 @@ def load_users(app_client, db):
             users = False
 
 
-def list_cohorts(groups):
+def group_add(groups_db, email, groups):
+    """
+    adds the email-address to a group
+    :param groups_db:
+    :param email:
+    :param groups:
+    :return:
+    """
+    for item in groups:
+        if item in groups_db:
+            group = groups_db[item]
+        else:
+            group = Group(name=item, students=list())
+        group.students.append(email)
+        groups_db[item] = group
+
+
+def list_groups(groups):
     """
     creates a list of all relevant cohorts
     :param groups: Azure AD groups
