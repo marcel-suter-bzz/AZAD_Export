@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from json import dumps
 
 
 @dataclass
@@ -11,6 +12,17 @@ class Group:
 
     name: str
     students: list
+
+    @property
+    def __dict__(self):
+        return {
+            'name': self.name,
+            'students': self.students
+        }
+
+    @property
+    def json(self):
+        return dumps(self.__dict__)
 
     @property
     def name(self):

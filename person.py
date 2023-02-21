@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from json import dumps
 
 
 @dataclass
@@ -13,8 +14,21 @@ class Person:
     firstname: str
     lastname: str
     department: str
-    groups: list
     role: str
+
+    @property
+    def __dict__(self):
+        return {
+            'email': self.email,
+            'firstname': self.firstname,
+            'lastname': self.lastname,
+            'department': self.department,
+            'role': self.role
+        }
+
+    @property
+    def json(self):
+        return dumps(self.__dict__)
 
     @property
     def email(self):

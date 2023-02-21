@@ -1,6 +1,5 @@
 import os
 from dotenv import load_dotenv
-import shelve
 import re
 
 from azure.identity import ClientSecretCredential
@@ -13,25 +12,21 @@ from person import Person
 def main():
     load_dotenv()
     app_client = graph_auth()
-    with \
-            shelve.open(
-                filename=os.getenv('DATAPATH') + 'adusers_new.db',
-                flag='c'
-            ) as people_db, \
-            shelve.open(
-                filename=os.getenv('DATAPATH') + 'adgroups_new.db',
-                flag='c'
-            ) as groups_db:
-        load_users(app_client, people_db, groups_db)
+    people_list = list()
+    groups_dict = dict()
+    load_users(app_client, people_list, groups_dict)
+    save_users(people_list)
+    save_groups(groups_dict)
 
 
-def load_users(app_client, people_db, groups_db):
+def load_users(app_client, people_list, groups_dict):
     """
     loads all users from MS Graph
     :param app_client:
     :param people_db:
     :return:
     """
+
     users = read_users(app_client)
     while users:
         for user in users['value']:
@@ -47,13 +42,13 @@ def load_users(app_client, people_db, groups_db):
                     firstname=user['givenName'],
                     lastname=user['surname'],
                     department=user['department'],
-                    cohorts=list(),
                     role=role
                 )
                 if role == 'student':
-                    person.groups = list_groups(groups)
-                    group_add(groups_db, person.email, person.groups)
-                people_db[user['mail']] = person
+                    group_add(groups_dict, person.email, list_groups(groups))
+                people_list.append(person)
+            else:
+                pass
 
         if '@odata.nextLink' in users:
             users_response = app_client.get(users['@odata.nextLink'])
@@ -62,7 +57,7 @@ def load_users(app_client, people_db, groups_db):
             users = False
 
 
-def group_add(groups_db, email, groups):
+def group_add(groups_dict, email, groups):
     """
     adds the email-address to a group
     :param groups_db:
@@ -71,12 +66,13 @@ def group_add(groups_db, email, groups):
     :return:
     """
     for item in groups:
-        if item in groups_db:
-            group = groups_db[item]
+        if item in groups_dict:
+            group = groups_dict[item]
         else:
             group = Group(name=item, students=list())
-        group.students.append(email)
-        groups_db[item] = group
+            groups_dict[item] = group
+        if not email in group.students:
+            group.students.append(email)
 
 
 def list_groups(groups):
@@ -87,8 +83,11 @@ def list_groups(groups):
     """
     cohort_list = list()
     for group in groups:
-        if re.match(r'[A-Z]{2,3}\d{2}[a-z]', group['displayName']):
-            cohort_list.append(group['displayName'])
+        try:
+            if re.match(r'[A-Z]{2,3}\d{2}[a-z]', group['displayName']):
+                cohort_list.append(group['displayName'])
+        except TypeError:
+            pass
     return cohort_list
 
 
@@ -122,6 +121,24 @@ def read_users(app_client):
     return users_response.json()
 
 
+def save_users(people_list):
+    data = '['
+    for person in people_list:
+        data += person.json + ','
+    data = data[:-1] + ']'
+
+    with open(os.getenv('DATAPATH') + 'people2.json', 'w', encoding='UTF-8') as file:
+        file.write(data)
+
+def save_groups(groups_dict):
+    data = '['
+    for key in groups_dict:
+        data += groups_dict[key].json + ','
+    data = data[:-1] + ']'
+
+    with open(os.getenv('DATAPATH') + 'groups2.json', 'w', encoding='UTF-8') as file:
+        file.write(data)
+
 def get_role(groups):
     """
     gets the role of a user
@@ -133,7 +150,7 @@ def get_role(groups):
             return "student"
         if group['displayName'] == os.getenv('GRAPHTEACHERGROUP'):
             return "teacher"
-    return "other"
+    return "student"
 
 
 if __name__ == '__main__':
