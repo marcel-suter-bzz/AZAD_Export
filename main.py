@@ -23,7 +23,8 @@ def load_users(app_client, people_list, groups_dict):
     """
     loads all users from MS Graph
     :param app_client:
-    :param people_db:
+    :param people_list:
+    :param groups_dict:
     :return:
     """
 
@@ -60,7 +61,7 @@ def load_users(app_client, people_list, groups_dict):
 def group_add(groups_dict, email, groups):
     """
     adds the email-address to a group
-    :param groups_db:
+    :param groups_dict:
     :param email:
     :param groups:
     :return:
@@ -71,7 +72,7 @@ def group_add(groups_dict, email, groups):
         else:
             group = Group(name=item, students=list())
             groups_dict[item] = group
-        if not email in group.students:
+        if email not in group.students:
             group.students.append(email)
 
 
@@ -127,8 +128,9 @@ def save_users(people_list):
         data += person.json + ','
     data = data[:-1] + ']'
 
-    with open(os.getenv('DATAPATH') + 'people2.json', 'w', encoding='UTF-8') as file:
+    with open(os.getenv('PEOPLEFILE'), 'w', encoding='UTF-8') as file:
         file.write(data)
+
 
 def save_groups(groups_dict):
     data = '['
@@ -136,8 +138,9 @@ def save_groups(groups_dict):
         data += groups_dict[key].json + ','
     data = data[:-1] + ']'
 
-    with open(os.getenv('DATAPATH') + 'groups2.json', 'w', encoding='UTF-8') as file:
+    with open(os.getenv('GROUPFILE'), 'w', encoding='UTF-8') as file:
         file.write(data)
+
 
 def get_role(groups):
     """
