@@ -1,34 +1,58 @@
+""" This script reads all users and their groups from Azure AD and saves them to a JSON file. """
+import msal
 import os
-from dotenv import load_dotenv
 import re
 
-from azure.identity import ClientSecretCredential
-from msgraph.core import GraphClient
+import requests
+from dotenv import load_dotenv
 
 from group import Group
 from person import Person
 
 
 def main():
+    """
+    main function
+    """
     load_dotenv()
-    app_client = graph_auth()
-    people_list = list()
-    groups_dict = dict()
-    load_users(app_client, people_list, groups_dict)
+    people_list = []
+    groups_dict = {}
+
+    token = create_token()
+    load_users(token, people_list, groups_dict)
     save_users(people_list)
     save_groups(groups_dict)
+    pass
 
 
-def load_users(app_client, people_list, groups_dict):
+def create_token():
+    """
+    Creates the Entra token for the app
+    """
+    app_client = msal.ConfidentialClientApplication(
+        os.getenv('AZURECLIENT'),
+        authority=os.getenv('AZUREAUTHORITY'),
+        client_credential=os.getenv('AZURESECRET')
+    )
+
+    token = app_client.acquire_token_for_client(scopes=['https://graph.microsoft.com/.default'])
+    if not token:
+        print('No suitable token exists in cache. Let\'s get a new one from AAD.')
+        token = app_client.acquire_token_for_client(scopes=['https://graph.microsoft.com/.default'])
+
+    return token
+
+
+def load_users(token, people_list, groups_dict):
     """
     loads all users from MS Graph
-    :param app_client:
+    :param token:
     :param people_list:
     :param groups_dict:
     :return:
     """
 
-    users = read_users(app_client)
+    users = read_users(token)
     while users:
         for user in users['value']:
             if user['department'] is not None and \
@@ -52,10 +76,47 @@ def load_users(app_client, people_list, groups_dict):
                 pass
 
         if '@odata.nextLink' in users:
-            users_response = app_client.get(users['@odata.nextLink'])
-            users = users_response.json()
+            users = read_users(token, users['@odata.nextLink'])
         else:
             users = False
+
+
+def read_users(token, url=None):
+    """
+    reads all users from Entra
+    :param token: the token for the app
+    :return: userdata as json
+    """
+    if not url:
+        url = f'{os.getenv("GRAPHURL")}' \
+              f'/users?' \
+              '$select=displayName,id,givenname,surname,mail,department' \
+              '&$expand=memberOf'
+    response = requests.get(
+        url=url,
+        headers={'Authorization': f'Bearer {token["access_token"]}'}
+    )
+    return response.json()
+
+
+def list_groups(groups):
+    """
+    creates a list of all relevant cohorts
+    :param groups: Azure AD groups
+    :return: list of cohorts
+    """
+    cohort_list = list()
+    for group in groups:
+        try:
+            if re.match(r'[A-Z]{2,3}\d{2}[a-z]$', group['displayName']):
+                if os.getenv('DEBUG') == 'True':
+                    print(f'Processing {group["displayName"]}')
+                cohort_list.append(group['displayName'])
+            else:
+                print(f'Skipping AD Group {group["displayName"]}')
+        except TypeError:
+            pass
+    return cohort_list
 
 
 def group_add(groups_dict, email, groups):
@@ -76,53 +137,25 @@ def group_add(groups_dict, email, groups):
             group.students.append(email)
 
 
-def list_groups(groups):
+def get_role(groups):
     """
-    creates a list of all relevant cohorts
-    :param groups: Azure AD groups
-    :return: list of cohorts
+    gets the role of a user
+    :param groups: the groups the user is a member of
+    :return: "student" / "teacher" / "other"
     """
-    cohort_list = list()
     for group in groups:
-        try:
-            if re.match(r'[A-Z]{2,3}\d{2}[a-z]', group['displayName']):
-                cohort_list.append(group['displayName'])
-        except TypeError:
-            pass
-    return cohort_list
+        if group['displayName'] == os.getenv('GRAPHSTUDENTGROUP'):
+            return 'student'
+        if group['displayName'] == os.getenv('GRAPHTEACHERGROUP'):
+            return 'teacher'
 
-
-def graph_auth():
-    """
-    authenticates the app with MS Graph
-    :return:
-    """
-    client_id = os.getenv('AZURECLIENT')
-    tenant_id = os.getenv('AZURETENANT')
-    client_secret = os.getenv('AZURESECRET')
-    client_credential = ClientSecretCredential(tenant_id, client_id, client_secret)
-    app_client = GraphClient(credential=client_credential,
-                             scopes=['https://graph.microsoft.com/.default'])
-    return app_client
-
-
-def read_users(app_client):
-    """
-    reads all users from Azure AD
-    :param app_client: the authorized app client
-    :return: userdata as json
-    """
-    request_url = '/users?' \
-                  '$select=displayName,id,givenname,surname,mail,department' \
-                  '&$expand=memberOf'
-    # '&$filter=endsWith(mail,\'@bzz.ch\')' \
-    # '&$count=true'
-    headers = {'ConsistencyLevel': 'eventual'}
-    users_response = app_client.get(request_url, headers=headers)
-    return users_response.json()
+    return 'student'
 
 
 def save_users(people_list):
+    """
+    saves the people_list to a JSON file
+    """
     data = '['
     for person in people_list:
         data += person.json + ','
@@ -133,6 +166,9 @@ def save_users(people_list):
 
 
 def save_groups(groups_dict):
+    """
+    saves the groups_dict to a JSON file
+    """
     data = '['
     for key in groups_dict:
         data += groups_dict[key].json + ','
@@ -140,20 +176,6 @@ def save_groups(groups_dict):
 
     with open(os.getenv('GROUPFILE'), 'w', encoding='UTF-8') as file:
         file.write(data)
-
-
-def get_role(groups):
-    """
-    gets the role of a user
-    :param groups: the groups the user is a member of
-    :return: "student" / "teacher" / "other"
-    """
-    for group in groups:
-        if group['displayName'] == os.getenv('GRAPHSTUDENTGROUP'):
-            return "student"
-        if group['displayName'] == os.getenv('GRAPHTEACHERGROUP'):
-            return "teacher"
-    return "student"
 
 
 if __name__ == '__main__':
